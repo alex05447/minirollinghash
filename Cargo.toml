@@ -1,0 +1,18 @@
+[package]
+name = "minirollinghash"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["adler", "cyclic_poly"]
+adler = []
+cyclic_poly = []
+
+[dependencies]
+num-traits = "0.2.*"
+
+[dev-dependencies]
+adler32 = "1.2.*"
+cyclic-poly-23 = "0.3.*"
