@@ -60,7 +60,7 @@ impl<H: AdlerHash> HashAdler<H> {
     }
 }
 
-impl<H: AdlerHash> rolling_hash_impl::RollingHashImpl<H> for HashAdler<H> {
+impl<H: AdlerHash> RollingHashImpl<H> for HashAdler<H> {
     fn new(_window: impl NonZero<H>) -> Self {
         Self::new()
     }

@@ -9,9 +9,15 @@ mod adler;
 #[cfg(feature = "cyclic_poly")]
 mod cyclic_poly;
 
+#[cfg(feature = "adler")]
+pub use adler::*;
+
+#[cfg(feature = "cyclic_poly")]
+pub use cyclic_poly::*;
+
 use {
-    core::ops::{BitOr, BitXor, Shl},
-    num_traits::{Num, WrappingAdd, WrappingMul, WrappingSub},
+    core::ops::{AddAssign, BitOr, BitXor, Shl},
+    num_traits::{Bounded, Num, WrappingAdd, WrappingMul, WrappingSub},
     std::{
         iter::{ExactSizeIterator, Iterator},
         marker::PhantomData,
@@ -29,6 +35,8 @@ use {
 /// In practice this just generalizes over `u16` and `u32` in rolling hashes.
 pub trait HashType:
     Copy // It's a simple integer. Needed for cyclic poly reverse table init.
+    + Bounded // May be needed by the users.
+    + AddAssign // May be needed by the users.
     + Ord // Needed for adler, to compare with the prime.
     + Num // Basic numeric stuff, needed for adler and cyclic poly.
     + BitOr<Output = Self> // Needed for alder, to combine the result hash.
@@ -100,40 +108,34 @@ impl NonZero<u32> for NonZeroU32 {
     }
 }
 
-mod rolling_hash_impl {
-    use super::*;
-
-    /// An implementation of the rolling hash.
+/// An implementation of the rolling hash.
+///
+/// Needs to know hot to hash the initial byte window of the source byte slice,
+/// how to roll the hash given the old and new bytes,
+/// and to return the calculated hash.
+pub trait RollingHashImpl<H: HashType> {
+    /// Initialize the rolling hash implementation.
     ///
-    /// Needs to know hot to hash the initial byte window of the source byte slice,
-    /// how to roll the hash given the old and new bytes,
-    /// and to return the calculated hash.
-    pub trait RollingHashImpl<H: HashType> {
-        /// Initialize the rolling hash implementation.
-        ///
-        /// It will be used to calculate the hashes for `window`-sized windows.
-        fn new(window: impl NonZero<H>) -> Self;
-        /// Called once by the rolling hash to initialize the hash for the first window of the source byte slice.
-        ///
-        /// Length of the `bytes` slice is guaranteed to be equal to the window size
-        /// the rolling hash implementation was initialized with.
-        fn hash_bytes(&mut self, bytes: &[u8]);
-        /// Called multiple times by the rolling hash to roll the `window`-sized hash window over the source byte slice.
-        ///
-        /// `old_byte` is the first byte of the previous window, `new_byte` is the first byte past the end of the previous window.
-        fn roll_hash(&mut self, old_byte: u8, new_byte: u8, window: impl NonZero<H>);
-        /// Returns the rolling hash implementation's calculated hash value for the current hash window,
-        fn hash(&self) -> H;
-    }
+    /// It will be used to calculate the hashes for `window`-sized windows.
+    fn new(window: impl NonZero<H>) -> Self;
+    /// Called once by the rolling hash to initialize the hash for the first window of the source byte slice.
+    ///
+    /// Length of the `bytes` slice is guaranteed to be equal to the window size
+    /// the rolling hash implementation was initialized with.
+    fn hash_bytes(&mut self, bytes: &[u8]);
+    /// Called multiple times by the rolling hash to roll the `window`-sized hash window over the source byte slice.
+    ///
+    /// `old_byte` is the first byte of the previous window, `new_byte` is the first byte past the end of the previous window.
+    fn roll_hash(&mut self, old_byte: u8, new_byte: u8, window: impl NonZero<H>);
+    /// Returns the rolling hash implementation's calculated hash value for the current hash window,
+    fn hash(&self) -> H;
 }
 
-/// Rolling hash iterator adapter.
-pub struct RollingHash<'a, H, W, R>
-where
-    H: HashType,
-    W: NonZero<H>,
-    R: rolling_hash_impl::RollingHashImpl<H>,
-{
+/// Rolling hash (exact size) iterator adapter.
+///
+/// Returns hashes of consecutive complete `window`-byte-sized windows of the `bytes` slice,
+/// until the last `window` bytes of the slice.
+pub struct RollingHash<'a, H, W, R> {
     bytes: &'a [u8],
     window: W,
     hash: R,
@@ -145,9 +147,9 @@ impl<'a, H, W, R> RollingHash<'a, H, W, R>
 where
     H: HashType,
     W: NonZero<H>,
-    R: rolling_hash_impl::RollingHashImpl<H>,
+    R: RollingHashImpl<H>,
 {
-    /// Creates the rolling hash iterator adapter.
+    /// Creates the rolling hash (exact size) iterator adapter.
     ///
     /// Returns hashes of consecutive complete `window`-byte-sized windows of the `bytes` slice,
     /// until the last `window` bytes of the slice.
@@ -188,7 +190,7 @@ impl<'a, H, W, R> Iterator for RollingHash<'a, H, W, R>
 where
     H: HashType,
     W: NonZero<H>,
-    R: rolling_hash_impl::RollingHashImpl<H>,
+    R: RollingHashImpl<H>,
 {
     type Item = H;
 
@@ -211,7 +213,7 @@ impl<'a, H, W, T> ExactSizeIterator for RollingHash<'a, H, W, T>
 where
     H: HashType,
     W: NonZero<H>,
-    T: rolling_hash_impl::RollingHashImpl<H>,
+    T: RollingHashImpl<H>,
 {
     fn len(&self) -> usize {
         self.len()
@@ -219,9 +221,9 @@ where
 }
 
 #[cfg(feature = "adler")]
-pub type RollingHashAdler<'a, H, W> = RollingHash<'a, H, W, adler::HashAdler<H>>;
+pub type RollingHashAdler<'a, H, W> = RollingHash<'a, H, W, HashAdler<H>>;
 #[cfg(feature = "cyclic_poly")]
-pub type RollingHashCyclicPoly<'a, H, W> = RollingHash<'a, H, W, cyclic_poly::HashCyclicPoly<H>>;
+pub type RollingHashCyclicPoly<'a, H, W> = RollingHash<'a, H, W, HashCyclicPoly<H>>;
 
 /// 16-bit Adler rolling hash.
 #[cfg(feature = "adler")]
@@ -246,7 +248,7 @@ mod tests {
     where
         H: HashType + std::fmt::Debug,
         W: NonZero<H>,
-        R: rolling_hash_impl::RollingHashImpl<H>,
+        R: RollingHashImpl<H>,
     {
         assert!(!bytes.is_empty());
 

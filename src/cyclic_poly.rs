@@ -121,7 +121,7 @@ impl<H: CyclicPolyHash> HashCyclicPoly<H> {
     }
 }
 
-impl<H: CyclicPolyHash> rolling_hash_impl::RollingHashImpl<H> for HashCyclicPoly<H> {
+impl<H: CyclicPolyHash> RollingHashImpl<H> for HashCyclicPoly<H> {
     fn new(window: impl NonZero<H>) -> Self {
         Self::new(window)
     }
