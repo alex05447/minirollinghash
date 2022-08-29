@@ -16,8 +16,9 @@ pub use adler::*;
 pub use cyclic_poly::*;
 
 use {
-    core::ops::{AddAssign, BitOr, BitXor, Shl},
-    num_traits::{Bounded, Num, WrappingAdd, WrappingMul, WrappingSub},
+    core::ops::{AddAssign, BitOr, BitXor, Shl, SubAssign},
+    miniunchecked::*,
+    num_traits::{Bounded, FromPrimitive, Num, ToPrimitive, WrappingAdd, WrappingMul, WrappingSub},
     std::{
         iter::{ExactSizeIterator, Iterator},
         marker::PhantomData,
@@ -35,55 +36,36 @@ use {
 /// In practice this just generalizes over `u16` and `u32` in rolling hashes.
 pub trait HashType:
     Copy // It's a simple integer. Needed for cyclic poly reverse table init.
+    + PartialOrd // Needed for adler, to compare with the prime.
+    + Ord
+    + Num // Basic numeric stuff, needed for adler and cyclic poly.
     + Bounded // May be needed by the users.
     + AddAssign // May be needed by the users.
-    + Ord // Needed for adler, to compare with the prime.
-    + Num // Basic numeric stuff, needed for adler and cyclic poly.
+    + SubAssign // May be needed by the users.
     + BitOr<Output = Self> // Needed for alder, to combine the result hash.
     + BitXor<Output = Self> // Needed for cyclic poly, to process input.
     + Shl<usize, Output = Self> // Needed for alder, to combine the result hash.
     + WrappingAdd // Needed for adler, to process input.
     + WrappingSub // Needed for adler, to process input.
     + WrappingMul // Needed for adler, to process input.
-{
-    fn from_byte(byte: u8) -> Self;
-    fn to_usize(&self) -> usize;
-    fn from_usize(val: usize) -> Option<Self>;
-}
+    + FromPrimitive // Needed for adler, for `from_u8()`. Always succeeds for supported types.
+    + ToPrimitive // Needed for adler and cyclic poly, for `from_usize()`.
+{}
 
-impl HashType for u16 {
-    fn from_byte(byte: u8) -> Self {
-        byte as _
-    }
+impl HashType for u16 {}
 
-    fn to_usize(&self) -> usize {
-        *self as _
-    }
+impl HashType for u32 {}
 
-    fn from_usize(val: usize) -> Option<Self> {
-        val.try_into().ok()
-    }
-}
-
-impl HashType for u32 {
-    fn from_byte(byte: u8) -> Self {
-        byte as _
-    }
-
-    fn to_usize(&self) -> usize {
-        *self as _
-    }
-
-    fn from_usize(val: usize) -> Option<Self> {
-        val.try_into().ok()
-    }
+fn to_usize<H: HashType>(val: H) -> usize {
+    // Succeeds for all supported types.
+    unsafe { val.to_usize().unwrap_unchecked_dbg() }
 }
 
 /// A non-zero [`HashType`] used for rolling hash byte slice window sizes.
 ///
 /// [`std::num::NonZeroU16`] for `u16`,
 /// [`std::num::NonZeroU32`] for `u32`.
-pub trait NonZero<H: HashType>: Clone + Copy {
+pub trait NonZero<H: HashType>: Copy {
     fn new(val: H) -> Option<Self>;
     fn get(self) -> H;
 }
@@ -182,7 +164,7 @@ where
     }
 
     fn window(&self) -> usize {
-        self.window.get().to_usize()
+        to_usize(self.window.get())
     }
 }
 
@@ -254,7 +236,7 @@ mod tests {
 
         let hash = RollingHash::<'_, H, W, R>::new(bytes, window);
 
-        let initial_len = bytes.len() - window.get().to_usize() + 1;
+        let initial_len = bytes.len() - to_usize(window.get()) + 1;
         assert_eq!(hash.len(), initial_len);
 
         let hash_bytes = |bytes: &[u8]| {
@@ -266,7 +248,7 @@ mod tests {
         let mut iter = hash.into_iter().enumerate();
 
         while let Some((offset, hash)) = iter.next() {
-            let window = &bytes[offset..offset + window.get().to_usize()];
+            let window = &bytes[offset..offset + to_usize(window.get())];
             assert_eq!(hash, hash_bytes(window));
 
             // `-1` to account for the returned item above.

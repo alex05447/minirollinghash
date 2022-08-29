@@ -1,4 +1,4 @@
-use crate::*;
+use {crate::*, miniunchecked::*};
 
 // `u16` or `u32`.
 pub trait AdlerHash: HashType {
@@ -20,6 +20,10 @@ pub struct HashAdler<H: AdlerHash> {
     b: H,
 }
 
+fn from_byte<H: HashType>(byte: u8) -> H {
+    unsafe { H::from_u8(byte).unwrap_unchecked_dbg() }
+}
+
 impl<H: AdlerHash> HashAdler<H> {
     fn new() -> Self {
         Self {
@@ -30,7 +34,7 @@ impl<H: AdlerHash> HashAdler<H> {
 
     fn hash_bytes(&mut self, bytes: &[u8]) {
         for &byte in bytes {
-            self.a = self.a + H::from_byte(byte);
+            self.a = self.a + from_byte::<H>(byte);
             self.b = self.b + self.a;
         }
         if self.a >= H::PRIME {
@@ -40,12 +44,12 @@ impl<H: AdlerHash> HashAdler<H> {
     }
 
     fn hash_byte(&mut self, byte: u8) {
-        self.a = (self.a + H::from_byte(byte)) % H::PRIME;
+        self.a = (self.a + from_byte::<H>(byte)) % H::PRIME;
         self.b = (self.b + self.a) % H::PRIME;
     }
 
     fn remove_byte(&mut self, byte: u8, window: impl NonZero<H>) {
-        let byte = H::from_byte(byte);
+        let byte = from_byte::<H>(byte);
         self.a = (self.a + H::PRIME - byte) % H::PRIME;
         self.b = ((self.b + H::PRIME - H::one())
             .wrapping_add(&H::PRIME.wrapping_sub(&window.get()).wrapping_mul(&byte)))
