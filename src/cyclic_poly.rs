@@ -1,10 +1,8 @@
-use crate::*;
+use {crate::*, miniunsigned::*};
 
 // `u16` or `u32`.
-pub trait CyclicPolyHash: HashType {
+pub trait CyclicPolyHash: Unsigned {
     const TABLE: [Self; 256];
-
-    fn rotate_left(self, n: Self) -> Self;
 }
 
 // Lower bytes from the random numbers ripped from `cyclic-poly-23`.
@@ -35,10 +33,6 @@ impl CyclicPolyHash for u16 {
         0x0442, 0x2f57, 0x415a, 0xf74c, 0x9e1a, 0x0981, 0x13fd, 0x6f5a, 0x45c4, 0xc200, 0x1b99,
         0x7ca3, 0x77c3, 0xd8f6,
     ];
-
-    fn rotate_left(self, n: Self) -> Self {
-        self.rotate_left(n as u32)
-    }
 }
 
 // Random numbers ripped from `cyclic-poly-23`.
@@ -82,10 +76,6 @@ impl CyclicPolyHash for u32 {
         0x3c32f74c, 0x26919e1a, 0x81270981, 0x36b813fd, 0x02b06f5a, 0xab8b45c4, 0x4b62c200,
         0x33891b99, 0x12de7ca3, 0x2c2377c3, 0x8051d8f6,
     ];
-
-    fn rotate_left(self, n: Self) -> Self {
-        self.rotate_left(n as u32)
-    }
 }
 
 pub struct HashCyclicPoly<H: CyclicPolyHash> {
@@ -97,7 +87,7 @@ impl<H: CyclicPolyHash> HashCyclicPoly<H> {
     fn new(window: impl NonZero<H>) -> Self {
         let mut reverse = [H::zero(); 256];
         for (r, &t) in reverse.iter_mut().zip(H::TABLE.iter()) {
-            *r = t.rotate_left(window.get());
+            *r = t.rotate_left(unsafe { window.get().to_u32().unwrap_unchecked_dbg() });
         }
         Self {
             hash: H::zero(),
@@ -107,12 +97,12 @@ impl<H: CyclicPolyHash> HashCyclicPoly<H> {
 
     fn hash_bytes(&mut self, bytes: &[u8]) {
         self.hash = bytes.iter().fold(self.hash, |hash, &b| {
-            hash.rotate_left(H::one()) ^ H::TABLE[b as usize]
+            hash.rotate_left(1) ^ H::TABLE[b as usize]
         });
     }
 
     fn roll_hash(&mut self, old_byte: u8, new_byte: u8) {
-        self.hash = self.hash.rotate_left(H::one()) ^ H::TABLE[new_byte as usize];
+        self.hash = self.hash.rotate_left(1) ^ H::TABLE[new_byte as usize];
         self.hash = self.hash ^ self.reverse[old_byte as usize];
     }
 

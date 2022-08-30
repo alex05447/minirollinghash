@@ -14,11 +14,11 @@ pub use adler::*;
 
 #[cfg(feature = "cyclic_poly")]
 pub use cyclic_poly::*;
+use miniunsigned::Unsigned;
 
 use {
-    core::ops::{AddAssign, BitOr, BitXor, Shl, SubAssign},
     miniunchecked::*,
-    num_traits::{Bounded, FromPrimitive, Num, ToPrimitive, WrappingAdd, WrappingMul, WrappingSub},
+    miniunsigned::*,
     std::{
         iter::{ExactSizeIterator, Iterator},
         marker::PhantomData,
@@ -26,76 +26,12 @@ use {
     },
 };
 
-/// Trait for the type of the
-/// 1) returned rolling hash value and
-/// 2) the byte slice window size the rolling hash operates on.
-///
-/// It makes no sense for the intended use cases to generate a `u32` hash over a 64k window (i.e. a `u16` window size),
-/// so we use the same type for the hash value and the window size.
-///
-/// In practice this just generalizes over `u16` and `u32` in rolling hashes.
-pub trait HashType:
-    Copy // It's a simple integer. Needed for cyclic poly reverse table init.
-    + PartialOrd // Needed for adler, to compare with the prime.
-    + Ord
-    + Num // Basic numeric stuff, needed for adler and cyclic poly.
-    + Bounded // May be needed by the users.
-    + AddAssign // May be needed by the users.
-    + SubAssign // May be needed by the users.
-    + BitOr<Output = Self> // Needed for alder, to combine the result hash.
-    + BitXor<Output = Self> // Needed for cyclic poly, to process input.
-    + Shl<usize, Output = Self> // Needed for alder, to combine the result hash.
-    + WrappingAdd // Needed for adler, to process input.
-    + WrappingSub // Needed for adler, to process input.
-    + WrappingMul // Needed for adler, to process input.
-    + FromPrimitive // Needed for adler, for `from_u8()`. Always succeeds for supported types.
-    + ToPrimitive // Needed for adler and cyclic poly, for `from_usize()`.
-{}
-
-impl HashType for u16 {}
-
-impl HashType for u32 {}
-
-fn to_usize<H: HashType>(val: H) -> usize {
-    // Succeeds for all supported types.
-    unsafe { val.to_usize().unwrap_unchecked_dbg() }
-}
-
-/// A non-zero [`HashType`] used for rolling hash byte slice window sizes.
-///
-/// [`std::num::NonZeroU16`] for `u16`,
-/// [`std::num::NonZeroU32`] for `u32`.
-pub trait NonZero<H: HashType>: Copy {
-    fn new(val: H) -> Option<Self>;
-    fn get(self) -> H;
-}
-
-impl NonZero<u16> for NonZeroU16 {
-    fn new(val: u16) -> Option<Self> {
-        Self::new(val)
-    }
-
-    fn get(self) -> u16 {
-        self.get()
-    }
-}
-
-impl NonZero<u32> for NonZeroU32 {
-    fn new(val: u32) -> Option<Self> {
-        Self::new(val)
-    }
-
-    fn get(self) -> u32 {
-        self.get()
-    }
-}
-
 /// An implementation of the rolling hash.
 ///
 /// Needs to know hot to hash the initial byte window of the source byte slice,
 /// how to roll the hash given the old and new bytes,
 /// and to return the calculated hash.
-pub trait RollingHashImpl<H: HashType> {
+pub trait RollingHashImpl<H: Unsigned> {
     /// Initialize the rolling hash implementation.
     ///
     /// It will be used to calculate the hashes for `window`-sized windows.
@@ -127,7 +63,7 @@ pub struct RollingHash<'a, H, W, R> {
 
 impl<'a, H, W, R> RollingHash<'a, H, W, R>
 where
-    H: HashType,
+    H: Unsigned,
     W: NonZero<H>,
     R: RollingHashImpl<H>,
 {
@@ -164,13 +100,13 @@ where
     }
 
     fn window(&self) -> usize {
-        to_usize(self.window.get())
+        self.window.get().to_usize()
     }
 }
 
 impl<'a, H, W, R> Iterator for RollingHash<'a, H, W, R>
 where
-    H: HashType,
+    H: Unsigned,
     W: NonZero<H>,
     R: RollingHashImpl<H>,
 {
@@ -193,7 +129,7 @@ where
 
 impl<'a, H, W, T> ExactSizeIterator for RollingHash<'a, H, W, T>
 where
-    H: HashType,
+    H: Unsigned,
     W: NonZero<H>,
     T: RollingHashImpl<H>,
 {
@@ -228,7 +164,7 @@ mod tests {
     // Tests that the rolling hash is equal to the value calculated from the window directly.
     fn roll_test_impl<H, W, R>(bytes: &[u8], window: W)
     where
-        H: HashType + std::fmt::Debug,
+        H: Unsigned + std::fmt::Debug,
         W: NonZero<H>,
         R: RollingHashImpl<H>,
     {
@@ -236,7 +172,7 @@ mod tests {
 
         let hash = RollingHash::<'_, H, W, R>::new(bytes, window);
 
-        let initial_len = bytes.len() - to_usize(window.get()) + 1;
+        let initial_len = bytes.len() - window.get().to_usize() + 1;
         assert_eq!(hash.len(), initial_len);
 
         let hash_bytes = |bytes: &[u8]| {
@@ -248,7 +184,7 @@ mod tests {
         let mut iter = hash.into_iter().enumerate();
 
         while let Some((offset, hash)) = iter.next() {
-            let window = &bytes[offset..offset + to_usize(window.get())];
+            let window = &bytes[offset..offset + window.get().to_usize()];
             assert_eq!(hash, hash_bytes(window));
 
             // `-1` to account for the returned item above.

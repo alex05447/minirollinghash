@@ -11,8 +11,8 @@ adler = []
 cyclic_poly = []
 
 [dependencies]
-num-traits = "0.2.*"
 miniunchecked = { path = "../miniunchecked" }
+miniunsigned = { path = "../miniunsigned" }
 
 [dev-dependencies]
 adler32 = "1.2.*"
