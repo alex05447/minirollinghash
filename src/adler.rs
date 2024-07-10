@@ -15,16 +15,18 @@ impl AdlerHash for u32 {
     const PRIME: Self = 65521;
 }
 
-pub struct HashAdler<H: AdlerHash> {
+pub struct HashAdler<H, W> {
     a: H,
     b: H,
+    window: W,
 }
 
-impl<H: AdlerHash> HashAdler<H> {
-    fn new() -> Self {
+impl<H: AdlerHash, W: NonZero<H>> HashAdler<H, W> {
+    fn new(window: W) -> Self {
         Self {
             a: H::one(),
             b: H::zero(),
+            window,
         }
     }
 
@@ -44,12 +46,14 @@ impl<H: AdlerHash> HashAdler<H> {
         self.b = (self.b + self.a) % H::PRIME;
     }
 
-    fn remove_byte(&mut self, byte: u8, window: impl NonZero<H>) {
+    fn remove_byte(&mut self, byte: u8) {
         let byte = <H as Unsigned>::from_u8(byte);
         self.a = (self.a + H::PRIME - byte) % H::PRIME;
-        self.b = ((self.b + H::PRIME - H::one())
-            .wrapping_add(&H::PRIME.wrapping_sub(&window.get()).wrapping_mul(&byte)))
-            % H::PRIME;
+        self.b = ((self.b + H::PRIME - H::one()).wrapping_add(
+            &H::PRIME
+                .wrapping_sub(&self.window.get())
+                .wrapping_mul(&byte),
+        )) % H::PRIME;
     }
 
     fn get_hash(&self) -> H {
@@ -60,17 +64,19 @@ impl<H: AdlerHash> HashAdler<H> {
     }
 }
 
-impl<H: AdlerHash> RollingHashImpl<H> for HashAdler<H> {
-    fn new(_window: impl NonZero<H>) -> Self {
-        Self::new()
+impl<H: AdlerHash, W: NonZero<H>> RollingHashImpl<H, W> for HashAdler<H, W> {
+    fn new(window: W) -> Self {
+        Self::new(window)
     }
 
     fn hash_bytes(&mut self, bytes: &[u8]) {
+        debug_assert_eq!(bytes.len(), self.window.get().to_usize());
+
         self.hash_bytes(bytes)
     }
 
-    fn roll_hash(&mut self, old_byte: u8, new_byte: u8, window: impl NonZero<H>) {
-        self.remove_byte(old_byte, window);
+    fn roll_hash(&mut self, old_byte: u8, new_byte: u8) {
+        self.remove_byte(old_byte);
         self.hash_byte(new_byte);
     }
 
@@ -90,7 +96,7 @@ mod tests {
 
         let window = NonZeroU32::new(4).unwrap();
 
-        let hash = RollingHashAdler32::<'_>::new(&bytes, window);
+        let hash = RollingHashAdler32::new(&bytes, window);
 
         let mut hash_reference =
             adler32::RollingAdler32::from_buffer(&bytes[..window.get() as usize]);

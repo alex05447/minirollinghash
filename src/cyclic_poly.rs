@@ -78,13 +78,17 @@ impl CyclicPolyHash for u32 {
     ];
 }
 
-pub struct HashCyclicPoly<H: CyclicPolyHash> {
+pub struct HashCyclicPoly<H: CyclicPolyHash, W> {
     hash: H,
     reverse: [H; 256],
+    #[cfg(debug_assertions)]
+    window: W,
+    #[cfg(not(debug_assertions))]
+    _marker: std::marker::PhantomData<W>,
 }
 
-impl<H: CyclicPolyHash> HashCyclicPoly<H> {
-    fn new(window: impl NonZero<H>) -> Self {
+impl<H: CyclicPolyHash, W: NonZero<H>> HashCyclicPoly<H, W> {
+    fn new(window: W) -> Self {
         let mut reverse = [H::zero(); 256];
         for (r, &t) in reverse.iter_mut().zip(H::TABLE.iter()) {
             *r = t.rotate_left(unsafe { window.get().to_u32().unwrap_unchecked_dbg() });
@@ -92,6 +96,10 @@ impl<H: CyclicPolyHash> HashCyclicPoly<H> {
         Self {
             hash: H::zero(),
             reverse,
+            #[cfg(debug_assertions)]
+            window,
+            #[cfg(not(debug_assertions))]
+            _marker: Default::default(),
         }
     }
 
@@ -111,16 +119,18 @@ impl<H: CyclicPolyHash> HashCyclicPoly<H> {
     }
 }
 
-impl<H: CyclicPolyHash> RollingHashImpl<H> for HashCyclicPoly<H> {
-    fn new(window: impl NonZero<H>) -> Self {
+impl<H: CyclicPolyHash, W: NonZero<H>> RollingHashImpl<H, W> for HashCyclicPoly<H, W> {
+    fn new(window: W) -> Self {
         Self::new(window)
     }
 
     fn hash_bytes(&mut self, bytes: &[u8]) {
+        debug_assert_eq!(bytes.len(), self.window.get().to_usize());
+
         self.hash_bytes(bytes)
     }
 
-    fn roll_hash(&mut self, old_byte: u8, new_byte: u8, _window: impl NonZero<H>) {
+    fn roll_hash(&mut self, old_byte: u8, new_byte: u8) {
         self.roll_hash(old_byte, new_byte);
     }
 
