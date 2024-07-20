@@ -17,3 +17,4 @@ miniunsigned = { path = "../miniunsigned" }
 [dev-dependencies]
 adler32 = "1.2.*"
 cyclic-poly-23 = "0.3.*"
+rand = { version = "0.8.*", features = ["small_rng"] }
