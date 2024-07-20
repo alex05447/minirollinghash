@@ -14,18 +14,18 @@ pub use adler::*;
 
 #[cfg(feature = "cyclic_poly")]
 pub use cyclic_poly::*;
-use miniunsigned::Unsigned;
 
 use {
-    miniunchecked::*,
     miniunsigned::*,
     std::{
         iter::{ExactSizeIterator, FusedIterator, Iterator},
         marker::PhantomData,
-        num::{NonZeroU16, NonZeroU32},
         slice::Windows,
     },
 };
+
+#[cfg(any(feature = "adler", feature = "cyclic_poly"))]
+use std::num::{NonZeroU16, NonZeroU32};
 
 /// An implementation of the rolling hash.
 ///
@@ -183,6 +183,7 @@ pub type RollingHashCyclicPoly16<'a> = RollingHashCyclicPoly<'a, u16, u16, NonZe
 pub type RollingHashCyclicPoly32<'a> = RollingHashCyclicPoly<'a, u32, u32, NonZeroU32>;
 
 #[cfg(test)]
+#[cfg(any(feature = "adler", feature = "cyclic_poly"))]
 mod tests {
     use {
         super::*,
@@ -362,7 +363,6 @@ mod tests {
         }
     }
 
-    #[cfg(any(feature = "adler", feature = "cyclic_poly"))]
     #[test]
     fn slice_too_short_test() {
         let bytes = [0u8, 1, 2, 3, 4, 5, 6, 7];
@@ -391,7 +391,6 @@ mod tests {
         }
     }
 
-    #[cfg(any(feature = "adler", feature = "cyclic_poly"))]
     #[test]
     fn roll_test() {
         let bytes = [0u8, 1, 2, 3, 4, 5, 6, 7];
@@ -416,7 +415,6 @@ mod tests {
         }
     }
 
-    #[cfg(any(feature = "adler", feature = "cyclic_poly"))]
     #[test]
     fn roll_test_random() {
         let size_16 = NonZeroU16::new(u8::MAX as u16 + 1).unwrap();

@@ -1,4 +1,4 @@
-use {crate::*, miniunsigned::*};
+use {crate::*, miniunchecked::*, miniunsigned::*};
 
 // `u16` or `u32`.
 pub trait AdlerHash: Unsigned {
