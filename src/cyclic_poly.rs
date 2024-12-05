@@ -78,22 +78,19 @@ impl CyclicPolyHash for u32 {
     ];
 }
 
-pub struct HashCyclicPoly<H, S, W> {
+pub struct HashCyclicPoly<H, W> {
     hash: H,
     reverse: [H; 256],
     #[cfg(debug_assertions)]
     window: W,
-    #[cfg(debug_assertions)]
-    _marker: std::marker::PhantomData<S>,
     #[cfg(not(debug_assertions))]
-    _marker: std::marker::PhantomData<(S, W)>,
+    _marker: std::marker::PhantomData<W>,
 }
 
-impl<H, S, W> HashCyclicPoly<H, S, W>
+impl<H, W> HashCyclicPoly<H, W>
 where
     H: CyclicPolyHash,
-    S: Unsigned,
-    W: NonZero<S>,
+    W: NonZero,
 {
     fn new(window: W) -> Self {
         let mut reverse = [H::zero(); 256];
@@ -108,11 +105,23 @@ where
             reverse,
             #[cfg(debug_assertions)]
             window,
+            #[cfg(not(debug_assertions))]
             _marker: Default::default(),
         }
     }
 
     fn hash_bytes(&mut self, bytes: &[u8]) {
+        #[cfg(debug_assertions)]
+        {
+            let bytes = bytes.len();
+            let window = self.window.get().to_usize();
+            debug_assert_eq!(
+                bytes,
+                window,
+                "passed in `bytes` slice (length {bytes}) must be equal in size to the `window` (size {window}) the hasher was initialized with"
+            );
+        }
+
         self.hash = bytes.iter().fold(self.hash, |hash, &b| {
             hash.rotate_left(1) ^ H::TABLE[b as usize]
         });
@@ -128,22 +137,16 @@ where
     }
 }
 
-impl<H, S, W> RollingHashImpl<H, S, W> for HashCyclicPoly<H, S, W>
+impl<H, W> RollingHashImpl<H, W> for HashCyclicPoly<H, W>
 where
     H: CyclicPolyHash,
-    S: Unsigned,
-    W: NonZero<S>,
+    W: NonZero,
 {
     fn new(window: W) -> Self {
         Self::new(window)
     }
 
     fn hash_bytes(&mut self, bytes: &[u8]) {
-        #[cfg(debug_assertions)]
-        {
-            debug_assert_eq!(bytes.len(), self.window.get().to_usize());
-        }
-
         self.hash_bytes(bytes)
     }
 
@@ -158,16 +161,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {
+        super::*,
+        rand::{distributions::Distribution, Rng, SeedableRng},
+    };
 
     // Compare the 32bit hash to the reference implementation in the [`cyclic-poly-23`](https://crates.io/crates/cyclic-poly-23) crate.
-    #[test]
-    fn cyclic_poly_test() {
-        let bytes = [0u8, 1, 2, 3, 4, 5, 6, 7];
+    fn roll_test_impl(bytes: &[u8], window: NonZeroU32) {
+        assert!(bytes.len().to_usize() >= window.get().to_usize());
 
-        let window = NonZeroU32::new(4).unwrap();
-
-        let hash = RollingHashCyclicPoly32::<'_>::new(&bytes, window);
+        let hash = RollingHashCyclicPoly32::new(&bytes, window);
 
         let mut hash_reference =
             cyclic_poly_23::CyclicPoly32::from_block(&bytes[..window.get() as usize]);
@@ -182,6 +185,37 @@ mod tests {
                 let new_byte = bytes[offset + window.get() as usize];
                 hash_reference.rotate(old_byte, new_byte);
             }
+        }
+    }
+
+    #[test]
+    fn cyclic_poly_test() {
+        let bytes = &[0u8, 1, 2, 3, 4, 5, 6, 7];
+        let window = NonZeroU32::new(4).unwrap();
+
+        roll_test_impl(bytes, window);
+    }
+
+    const NUM_RANDOM_ITERATIONS: usize = 10;
+
+    fn generate_random_bytes<R: Rng>(rng: &mut R, size: usize) -> Vec<u8> {
+        use rand::distributions::Uniform;
+
+        let random_byte_distr = Uniform::new_inclusive(0u8, u8::MAX);
+
+        (0..size).map(|_| random_byte_distr.sample(rng)).collect()
+    }
+
+    #[test]
+    fn cyclic_poly_test_random() {
+        let window = NonZeroU32::new(256).unwrap();
+
+        for i in 0..NUM_RANDOM_ITERATIONS {
+            let mut rng = rand::rngs::SmallRng::seed_from_u64(i as _);
+
+            let bytes = generate_random_bytes(&mut rng, u16::MAX as usize + 1);
+
+            roll_test_impl(&bytes, window);
         }
     }
 }
